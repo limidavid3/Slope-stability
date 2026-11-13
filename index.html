@@ -101,7 +101,7 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
 .g-bound{fill:none;stroke:var(--ink);stroke-width:1;opacity:.45}
 .g-surf{fill:none;stroke:var(--ink);stroke-width:2.2;stroke-linejoin:round}
 .g-water{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:9 5}
-.g-wmark{fill:var(--water)}
+.g-wmark{fill:var(--water)}.g-pond{fill:var(--water);opacity:.22}.g-anc{stroke:var(--ink);stroke-width:1.4}.g-ancb{stroke:var(--ink);stroke-width:4.5;stroke-linecap:round}.g-anch{fill:var(--ink)}
 .g-mass{fill:var(--accent);opacity:.18}
 .g-arc{fill:none;stroke:var(--accent);stroke-width:2.6}
 .g-slice{stroke:var(--accent);stroke-width:.8;opacity:.6}
@@ -136,7 +136,7 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
   <section class="tiles" id="tiles" aria-label="檢核結果"></section>
 
   <div class="cols">
-    <form class="inputs" id="form" autocomplete="off">
+    <form class="inputs" id="form" autocomplete="off" novalidate>
       <section class="panel">
         <h2>地表線</h2>
         <p class="hint">每行一個點「x, y」，由左至右。可直接從 Excel 貼上兩欄座標。</p>
@@ -161,8 +161,14 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
       </section>
 
       <section class="panel">
+        <h2>地錨</h2>
+        <p class="hint">每行一支（一排）地錨：錨頭 x, 傾角(度，水平向下), 自由段長 m, 固定段長 m, 設計拉力 kN/支, 水平間距 m。錨頭自動落在地表，朝坡內打設。留白表示沒有地錨。</p>
+        <textarea id="anc" rows="3" spellcheck="false" aria-label="地錨資料" placeholder="例：182, 20, 12, 8, 400, 2.5"></textarea>
+      </section>
+
+      <section class="panel">
         <h2>分析條件</h2>
-        <div class="grid2">
+        <div class="grid3">
           <label>邊坡階段
             <select id="stage">
               <option value="perm">永久性</option>
@@ -170,6 +176,7 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
               <option value="custom">自訂</option>
             </select></label>
           <label>水平地震係數 kh<input id="kh" type="number" step="0.01" min="0"></label>
+          <label>垂直地震係數 kv<input id="kv" type="number" step="0.01" min="0"></label>
         </div>
         <div class="grid3" style="margin-top:8px">
           <label>平時最小 FS<input id="reqN" type="number" step="0.05" min="0"></label>
@@ -180,6 +187,10 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
           <label>切片數<input id="nsl" type="number" step="1" min="10" max="200"></label>
           <label>最小滑動深度 m<input id="mind" type="number" step="0.1" min="0"></label>
           <label>分析底界高程 m<input id="bot" type="number" step="0.5" placeholder="自動"></label>
+        </div>
+        <div class="grid2" style="margin-top:8px">
+          <label>滑動面範圍 x 起<input id="xmin" type="number" step="1" placeholder="不限"></label>
+          <label>滑動面範圍 x 迄<input id="xmax" type="number" step="1" placeholder="不限"></label>
         </div>
         <div class="radio" role="radiogroup" aria-label="滑動面">
           <label><input type="radio" name="mode" id="modeAuto" value="auto">自動搜尋臨界圓</label>
@@ -211,9 +222,10 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
         <strong>計算方法與限制</strong>
         <ul>
           <li>安全係數以簡化 Bishop 法為準，同一圓弧另列 Fellenius（普通切片法）結果供比對。Fellenius 通常偏保守。</li>
-          <li>孔隙水壓以切片底部到水位線的垂直距離乘上 9.81 kN/m³ 計算。水位高於地表時以地表為準，不計坡面外的積水。</li>
-          <li>地震力採擬靜態法，只計水平力 kh·W，作用在切片中心高度。</li>
-          <li>只分析圓弧滑動面。沿層面的平面滑動、複合滑動面、張力裂縫、外加載重與擋土或錨定構造不在計算範圍內。</li>
+          <li>孔隙水壓以切片底部到水位線的垂直距離乘上 9.81 kN/m³ 計算。水位線高於地表的部分視為坡外積水（例如庫水），水壓垂直作用在地表並計入力矩。</li>
+          <li>地震力採擬靜態法：水平力 kh·W 作用在切片中心高度；有輸入 kv 時，垂直力 kv·W 向上、向下各算一次，取安全係數較小者。</li>
+          <li>地錨以設計拉力除以水平間距作為外力，沿錨軸方向作用。滑動面切過自由段時拉力全部有效；切過固定段時按滑動面外的固定段長度比例折減；錨體全在滑動土體內則不計。地錨本身的拉拔與鋼腱強度不在檢核範圍內。</li>
+          <li>只分析圓弧滑動面。沿層面的平面滑動、複合滑動面、張力裂縫、外加載重與擋土牆、排樁不在計算範圍內。</li>
           <li>最小安全係數預設值取自水土保持技術規範第 73 條。其他規範的要求不同時請改用「自訂」。</li>
           <li>本工具已用標準例題核對，但未經主管機關或公會認可。送審文件請由執業技師以認可的軟體複核。</li>
         </ul>
@@ -323,14 +335,34 @@ var SlopeEngine = (function () {
     return best; // 區間延伸到模型邊界或圓的垂直端點者視為無效
   }
 
+  // 地錨幾何：錨頭在地表，朝坡內（地表升高的一側）向下傾斜
+  function anchorGeom(model) {
+    if (model._anc) return model._anc;
+    var s = model.surface, out = [];
+    (model.anchors || []).forEach(function (a) {
+      var sl = interp(s, a.x + 0.5) - interp(s, a.x - 0.5);
+      if (Math.abs(sl) < 1e-6) { // 錨頭在平台上：以整體坡向判斷
+        var hi = s[0], lo = s[0];
+        s.forEach(function (p) { if (p[1] > hi[1]) hi = p; if (p[1] < lo[1]) lo = p; });
+        sl = hi[0] > lo[0] ? 1 : -1;
+      }
+      var th = a.angle * Math.PI / 180, sx = sl > 0 ? 1 : -1;
+      out.push({ x: a.x, y: interp(s, a.x), ax: sx * Math.cos(th), ay: -Math.sin(th), lf: a.lf, lb: a.lb, P: a.T / a.s });
+    });
+    model._anc = out;
+    return out;
+  }
+
   /* 分析單一圓弧。opt: {kh, water, nSlices, minDepth, detail} */
   function analyze(model, xc, yc, R, opt) {
     var span = findSpan(model, xc, yc, R);
     if (!span) return null;
     var xl = span[0], xr = span[1];
     if (xr - xl < 0.5) return null;
+    if (opt.xMin != null && xl < opt.xMin) return null; // 限制滑動面出入口範圍
+    if (opt.xMax != null && xr > opt.xMax) return null;
     if (model.bottom != null && yc - R < model.bottom - 1e-9) return null;
-    var n = opt.nSlices || 30, kh = opt.kh || 0, water = opt.water || null;
+    var n = opt.nSlices || 30, kh = opt.kh || 0, kv = opt.kv || 0, water = opt.water || null; // kv 正值為向上
     var b = (xr - xl) / n;
     var sl = [], D = 0, maxDepth = 0, i;
     var wPrev = 0; // 區間端點土柱高為零
@@ -345,11 +377,17 @@ var SlopeEngine = (function () {
       var h = ys - ybm;
       if (h > maxDepth) maxDepth = h;
       var L = model.layers[layerAt(t, ybm + 1e-6)];
-      var yw = water ? Math.min(ys, interp(water, xm)) : -Infinity;
+      var yw = water ? interp(water, xm) : -Infinity;
       var u = yw > ybm ? GW * (yw - ybm) : 0;
+      // 水位高於地表：坡面外積水，水壓垂直作用於地表（垂直分量 Pv、水平分量 Fx，+x 向右）
+      var hw = yw > ys ? yw - ys : 0;
+      var Pv = GW * hw * b;
+      var Fx = hw > 0 ? GW * hw * (interp(model.surface, x2) - interp(model.surface, x1)) : 0;
       var sinRaw = (xc - xm) / R;
-      D += W * sinRaw;
-      sl.push({ x1: x1, x2: x2, xm: xm, yb: ybm, ys: ys, h: h, b: b, W: W, u: u,
+      var Wv = W * (1 - kv); // 垂直地震力折減（或增加）後的重量
+      var drvRaw = (Wv + Pv) * sinRaw + Fx * (yc - ys) / R;
+      D += drvRaw;
+      sl.push({ x1: x1, x2: x2, xm: xm, yb: ybm, ys: ys, h: h, b: b, W: W, Wv: Wv, u: u, hw: hw, Pv: Pv, Fx: Fx, drvRaw: drvRaw,
         c: L.c, phi: L.phi, tan: Math.tan(L.phi * Math.PI / 180), sinRaw: sinRaw,
         layer: L.name });
     }
@@ -364,7 +402,31 @@ var SlopeEngine = (function () {
       s.l = s.b / s.cos;
       s.alpha = Math.asin(s.sin) * 180 / Math.PI;
       s.eq = kh * s.W * (yc - (s.ys + s.yb) / 2) / R; // 地震力對圓心力矩／R
-      Md += s.W * s.sin + s.eq;
+      s.drv = dir * s.drvRaw + s.eq; // 下滑力（含積水壓力與地震力）
+      s.aV = 0; s.aH = 0;
+      Md += s.drv;
+    }
+    // 地錨：滑動面切過自由段取全部拉力，切過固定段按滑動面外的固定段長度比例折減
+    var anc = anchorGeom(model), ancRes = [];
+    for (i = 0; i < anc.length; i++) {
+      var a = anc[i], fac = 0;
+      if (a.x > xl && a.x < xr) {
+        var dx = a.x - xc, dy = a.y - yc, bq = dx * a.ax + dy * a.ay, cq = dx * dx + dy * dy - R * R, disc = bq * bq - cq;
+        if (cq < 0 && disc > 0) {
+          var tt = -bq + Math.sqrt(disc), Lt = a.lf + a.lb;
+          fac = tt >= Lt ? 0 : tt <= a.lf ? 1 : (Lt - tt) / a.lb;
+          if (fac > 0) {
+            var P = a.P * fac, xi = a.x + tt * a.ax, yi = a.y + tt * a.ay;
+            var V = -P * a.ay, Hx = P * a.ax;
+            var mom = dir * (V * (xc - xi) + Hx * (yc - yi)) / R;
+            if (mom < 0) { // 只計對此滑動面有穩定作用的地錨
+              var k = Math.max(0, Math.min(n - 1, Math.floor((xi - xl) / b)));
+              sl[k].aV += V; sl[k].aH += dir * Hx; sl[k].drv += mom; Md += mom;
+            } else fac = 0;
+          }
+        }
+      }
+      ancRes.push({ x: a.x, factor: fac, P: a.P * fac });
     }
     if (!(Md > 1e-9)) return null;
 
@@ -372,7 +434,7 @@ var SlopeEngine = (function () {
     var Rf = 0;
     for (i = 0; i < n; i++) {
       s = sl[i];
-      var N = s.W * s.cos - kh * s.W * s.sin - s.u * s.l;
+      var N = (s.Wv + s.Pv + s.aV - s.u * s.b) * s.cos - (kh * s.W + s.aH) * s.sin; // 有效應力修正式，浸水時與浮單位重解一致
       s.rf = s.c * s.l + Math.max(0, N) * s.tan;
       Rf += s.rf;
     }
@@ -387,7 +449,7 @@ var SlopeEngine = (function () {
         var m = s.cos + s.sin * s.tan / F;
         if (m < 0.2) { ok = false; break; }
         s.m = m;
-        s.rb = (s.c * s.b + Math.max(0, s.W - s.u * s.b) * s.tan) / m;
+        s.rb = (s.c * s.b + Math.max(0, s.Wv + s.Pv + s.aV - s.u * s.b) * s.tan) / m;
         Rb += s.rb;
       }
       if (!ok) break;
@@ -398,7 +460,7 @@ var SlopeEngine = (function () {
     if (Fb == null) return null;
     var res = { xc: xc, yc: yc, R: R, xl: xl, xr: xr, dir: dir, Md: Md,
       fellenius: Ff, bishop: Fb, maxDepth: maxDepth };
-    if (opt.detail) res.slices = sl;
+    if (opt.detail) { res.slices = sl; res.anchors = ancRes; }
     return res;
   }
 
@@ -420,15 +482,21 @@ var SlopeEngine = (function () {
     return best;
   }
 
+  var DIRS = [];
+  (function () { // 單軸與兩軸合併的移動方向，避免卡在圓心與半徑連動的狹長谷地
+    var b = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 1], [0, 1, -1], [1, 0, 1], [1, 0, -1], [1, 1, 0], [1, -1, 0], [1, 1, 1], [1, -1, -1]];
+    b.forEach(function (v) { DIRS.push(v); DIRS.push([-v[0], -v[1], -v[2]]); });
+  })();
+
   /* 自動搜尋最小安全係數（以簡化 Bishop 為準）：格點搜尋後再逐步加密 */
   function search(model, opt) {
     var B = bounds(model), L = B.x1 - B.x0, H = Math.max(B.ymax - B.ymin, 1);
     var bottom = model.bottom != null ? model.bottom : B.ymin - H;
-    var nx = 36, ny = 36, nr = 24;
+    var g = opt.grid || 1, nx = Math.round(44 * g), ny = Math.round(44 * g), nr = Math.round(26 * g);
     var cx0 = B.x0 - 0.15 * L, cx1 = B.x1 + 0.15 * L;
     var cy0 = B.ymin + 0.3 * H, cy1 = B.ymax + Math.max(2.5 * H, 0.8 * L);
     var cand = [], count = 0, i, j, k;
-    var o = { kh: opt.kh, water: opt.water, nSlices: 20, minDepth: opt.minDepth };
+    var o = { kh: opt.kh, kv: opt.kv, water: opt.water, nSlices: 20, minDepth: opt.minDepth, xMin: opt.xMin, xMax: opt.xMax };
     for (i = 0; i <= nx; i++) {
       var xc = cx0 + (cx1 - cx0) * i / nx;
       for (j = 0; j <= ny; j++) {
@@ -458,13 +526,12 @@ var SlopeEngine = (function () {
     for (i = 0; i < seeds.length; i++) {
       var cur = analyze(model, seeds[i].xc, seeds[i].yc, seeds[i].R, o);
       if (!cur) continue;
-      var step = [(cx1 - cx0) / nx, (cy1 - cy0) / ny, Math.max(H, L) / nr];
+      var st0 = Math.min((cx1 - cx0) / nx, (cy1 - cy0) / ny); var step = [st0, st0, st0];
       var guard = 0;
-      while (Math.max(step[0], step[1], step[2]) > 0.005 && guard++ < 400) {
+      while (Math.max(step[0], step[1], step[2]) > 0.005 && guard++ < 600) {
         var moved = false;
-        for (var d = 0; d < 6; d++) {
-          var p = [cur.xc, cur.yc, cur.R];
-          p[d >> 1] += (d & 1 ? -1 : 1) * step[d >> 1];
+        for (var d = 0; d < DIRS.length; d++) {
+          var p = [cur.xc + DIRS[d][0] * step[0], cur.yc + DIRS[d][1] * step[1], cur.R + DIRS[d][2] * step[2]];
           var t = analyze(model, p[0], p[1], p[2], o);
           count++;
           if (t && t.bishop < cur.bishop - 1e-7) { cur = t; moved = true; }
@@ -481,7 +548,7 @@ var SlopeEngine = (function () {
   }
 
   return { GW: GW, interp: interp, tops: tops, layerAt: layerAt, columnWeight: columnWeight,
-    arcY: arcY, analyze: analyze, search: search, bounds: bounds };
+    arcY: arcY, anchorGeom: anchorGeom, analyze: analyze, search: search, bounds: bounds };
 })();
 if (typeof module !== 'undefined') module.exports = SlopeEngine;
 
@@ -519,25 +586,27 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   function collect() {
     return {
       name: $('pname').value, surf: $('surf').value, layers: layers.map(function (l) { return Object.assign({}, l); }),
-      wn: $('wn').value, ws: $('ws').value, stage: $('stage').value,
+      wn: $('wn').value, ws: $('ws').value, anc: $('anc').value, stage: $('stage').value,
       req: { normal: num('reqN'), storm: num('reqS'), quake: num('reqQ') },
-      kh: num('kh') || 0, n: num('nsl') || 30, minDepth: num('mind') || 0,
+      kh: num('kh') || 0, kv: num('kv') || 0, n: num('nsl') || 30, minDepth: num('mind') || 0,
       bottom: $('bot').value.trim(), mode: $('modeMan').checked ? 'manual' : 'auto',
-      mx: $('mx').value, my: $('my').value, mr: $('mr').value
+      mx: $('mx').value, my: $('my').value, mr: $('mr').value,
+      xmin: $('xmin').value.trim(), xmax: $('xmax').value.trim()
     };
   }
   function apply(s) {
     $('pname').value = s.name || '';
     $('surf').value = s.surf || '';
     layers = (s.layers && s.layers.length ? s.layers : EXAMPLE.layers).map(function (l) { return Object.assign({}, l); });
-    $('wn').value = s.wn || ''; $('ws').value = s.ws || '';
+    $('wn').value = s.wn || ''; $('ws').value = s.ws || ''; $('anc').value = s.anc || '';
     $('stage').value = s.stage || 'perm';
     var r = s.req || REQ.perm;
     $('reqN').value = r.normal; $('reqS').value = r.storm; $('reqQ').value = r.quake;
-    $('kh').value = s.kh == null ? 0 : s.kh; $('nsl').value = s.n || 30;
+    $('kh').value = s.kh == null ? 0 : s.kh; $('kv').value = s.kv == null ? 0 : s.kv; $('nsl').value = s.n || 30;
     $('mind').value = s.minDepth == null ? 1 : s.minDepth; $('bot').value = s.bottom == null ? '' : s.bottom;
     $('modeMan').checked = s.mode === 'manual'; $('modeAuto').checked = s.mode !== 'manual';
     $('mx').value = s.mx || ''; $('my').value = s.my || ''; $('mr').value = s.mr || '';
+    $('xmin').value = s.xmin == null ? '' : s.xmin; $('xmax').value = s.xmax == null ? '' : s.xmax;
     renderLayers(); syncMode();
   }
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(collect())); } catch (e) { /* 無法儲存時略過 */ } }
@@ -585,7 +654,18 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       return o;
     });
     var wn = parsePoly(s.wn, '常時水位', errs, true), ws = parsePoly(s.ws, '暴雨水位', errs, true);
-    var model = { surface: surface, layers: ls, bottom: s.bottom === '' ? null : Number(s.bottom) };
+    var anchors = [];
+    String(s.anc || '').split(/\r?\n/).forEach(function (line, k) {
+      line = line.trim(); if (!line) return;
+      var v = line.split(/[\s,;，、\t]+/).filter(Boolean).map(Number), lab = '地錨第 ' + (k + 1) + ' 行';
+      if (v.length < 6 || v.slice(0, 6).some(function (q) { return !isFinite(q); })) { errs.push(lab + '需要 6 個數字：錨頭 x, 傾角, 自由段長, 固定段長, 設計拉力, 水平間距。'); return; }
+      if (v[1] < 0 || v[1] >= 90) errs.push(lab + '的傾角要在 0 到 90 度之間。');
+      if (v[2] < 0 || !(v[3] > 0)) errs.push(lab + '的自由段長不可為負，固定段長要大於 0。');
+      if (v[4] < 0 || !(v[5] > 0)) errs.push(lab + '的拉力不可為負，水平間距要大於 0。');
+      if (surface && (v[0] <= surface[0][0] || v[0] >= surface[surface.length - 1][0])) errs.push(lab + '的錨頭 x 超出地表線範圍。');
+      anchors.push({ x: v[0], angle: v[1], lf: v[2], lb: v[3], T: v[4], s: v[5] });
+    });
+    var model = { surface: surface, layers: ls, anchors: anchors, bottom: s.bottom === '' ? null : Number(s.bottom) };
     if (surface) {
       var B = E.bounds(model);
       if (B.ymax - B.ymin < 0.1) errs.push('地表線是平的，沒有邊坡可以分析。');
@@ -624,7 +704,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
         up.push(sx(x) + ',' + sy(u)); lo.push(sx(x) + ',' + sy(Math.min(u, d)));
       });
       o.push('<polygon class="soil' + (li % 5) + '" points="' + up.concat(lo.reverse()).join(' ') + '"/>');
-      if (li > 0) o.push('<polyline class="g-bound" points="' + up.join(' ') + '"/>');
+      
     });
     // 格線與座標
     var st = niceStep(Math.max(L, yt - yb)), v;
@@ -655,10 +735,19 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     }
     // 水位
     if (water) {
-      o.push('<polyline class="g-water" points="' + xs.map(function (x) { return sx(x) + ',' + sy(Math.min(E.interp(water, x), E.interp(model.surface, x))); }).join(' ') + '"/>');
-      var wx = x0 + 0.82 * L, wy = +sy(Math.min(E.interp(water, wx), E.interp(model.surface, wx))), px = +sx(wx);
+      var pu = [], pl = [];
+      xs.forEach(function (x) { var g = E.interp(model.surface, x), w = Math.max(g, E.interp(water, x)); pu.push(sx(x) + ',' + sy(w)); pl.push(sx(x) + ',' + sy(g)); });
+      o.push('<polygon class="g-pond" points="' + pu.concat(pl.reverse()).join(' ') + '"/>');
+      o.push('<polyline class="g-water" points="' + xs.map(function (x) { return sx(x) + ',' + sy(E.interp(water, x)); }).join(' ') + '"/>');
+      var wx = x0 + 0.82 * L, wy = +sy(E.interp(water, wx)), px = +sx(wx);
       o.push('<polygon class="g-wmark" points="' + (px - 7) + ',' + (wy - 13) + ' ' + (px + 7) + ',' + (wy - 13) + ' ' + px + ',' + (wy - 2) + '"/>');
     }
+    E.anchorGeom(model).forEach(function (a) {
+      var fx = a.x + a.lf * a.ax, fy = a.y + a.lf * a.ay, ex = fx + a.lb * a.ax, ey = fy + a.lb * a.ay;
+      o.push('<line class="g-anc" x1="' + sx(a.x) + '" y1="' + sy(a.y) + '" x2="' + sx(fx) + '" y2="' + sy(fy) + '"/>');
+      o.push('<line class="g-ancb" x1="' + sx(fx) + '" y1="' + sy(fy) + '" x2="' + sx(ex) + '" y2="' + sy(ey) + '"/>');
+      o.push('<circle class="g-anch" r="3.5" cx="' + sx(a.x) + '" cy="' + sy(a.y) + '"/>');
+    });
     o.push('<polyline class="g-surf" points="' + model.surface.map(function (p) { return sx(p[0]) + ',' + sy(p[1]); }).join(' ') + '"/>');
     // 土層名稱：標在左側各層中間
     var lx = x0 + 0.03 * L, tl = E.tops(model, lx);
@@ -681,20 +770,28 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       else if (r) {
         var pass = r.res.bishop >= r.req - 1e-9; cls = pass ? 'ok' : 'bad'; fs = f(r.res.bishop, 3);
         pill = '<span class="pill ' + cls + '">' + (pass ? '符合' : '不符合') + '　需 ≥ ' + f(r.req, 2) + '</span>';
-        sub = '簡化 Bishop　・　Fellenius ' + f(r.res.fellenius, 3) + (c.key === 'quake' ? '　・　kh = ' + r.kh : '');
+        sub = '簡化 Bishop　・　Fellenius ' + f(r.res.fellenius, 3) + (c.key === 'quake' ? '　・　' + eqText(r) : '');
       }
       return '<button type="button" class="tile ' + cls + '" data-case="' + c.key + '" aria-pressed="' + (shown === c.key) + '">' +
         '<span class="lab">' + c.label + '</span>' + pill + '<span class="fs">' + fs + '</span><span class="sub">' + sub + '</span></button>';
     }).join('');
   }
+  function eqText(r) { return 'kh = ' + r.kh + (r.kv ? '，kv = ' + Math.abs(r.kv) + (r.kv > 0 ? ' 向上' : ' 向下') : ''); }
   function sliceTable(r) {
     var sl = r.res.slices, sr = 0, sd = 0;
     var h = '<table><thead><tr><th>片</th><th>x 中點<br>m</th><th>寬 b<br>m</th><th>高 h<br>m</th><th>重 W<br>kN/m</th><th>α<br>度</th><th>水壓 u<br>kPa</th><th class="txt">底部土層</th><th>c<br>kPa</th><th>φ<br>度</th><th>mα</th><th>抗滑力<br>kN/m</th><th>下滑力<br>kN/m</th></tr></thead><tbody>';
     sl.forEach(function (s, i) {
-      var d = s.W * s.sin + s.eq; sr += s.rb; sd += d;
+      var d = s.drv; sr += s.rb; sd += d;
       h += '<tr><td>' + (i + 1) + '</td><td>' + f(s.xm) + '</td><td>' + f(s.b) + '</td><td>' + f(s.h) + '</td><td>' + f(s.W, 1) + '</td><td>' + f(s.alpha, 1) + '</td><td>' + f(s.u, 1) + '</td><td class="txt">' + esc(s.layer) + '</td><td>' + f(s.c, 1) + '</td><td>' + f(s.phi, 1) + '</td><td>' + f(s.m, 3) + '</td><td>' + f(s.rb, 1) + '</td><td>' + f(d, 1) + '</td></tr>';
     });
     h += '</tbody><tfoot><tr><td class="txt" colspan="11">合計　FS = ' + f(sr, 1) + ' ÷ ' + f(sd, 1) + ' = ' + f(sr / sd, 3) + '</td><td>' + f(sr, 1) + '</td><td>' + f(sd, 1) + '</td></tr></tfoot></table>';
+    if (r.res.anchors && r.res.anchors.length) {
+      h += '<table style="width:auto;margin-top:10px"><thead><tr><th>地錨</th><th>錨頭 x<br>m</th><th>有效比例</th><th>有效拉力<br>kN/m</th><th class="txt">狀態</th></tr></thead><tbody>' +
+        r.res.anchors.map(function (a, i) {
+          var st = a.factor >= 1 ? '滑動面切過自由段，拉力全部有效' : a.factor > 0 ? '滑動面切過固定段，按滑動面外的固定段長度折減' : '不計：錨頭不在滑動範圍內、錨體全在滑動土體內，或對此滑動面沒有穩定作用';
+          return '<tr><td>' + (i + 1) + '</td><td>' + f(a.x) + '</td><td>' + f(a.factor * 100, 0) + '%</td><td>' + f(a.P, 1) + '</td><td class="txt">' + st + '</td></tr>';
+        }).join('') + '</tbody></table><p class="hint">地錨拉力已計入所在切片的抗滑力與下滑力（下滑力會減少，可能出現負值）。</p>';
+    }
     return h;
   }
   function caption(r) {
@@ -736,7 +833,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     var jobs = [
       { key: 'normal', water: b.wn, kh: 0 },
       { key: 'storm', water: b.ws, kh: 0, skip: b.ws ? null : '未輸入暴雨水位。' },
-      { key: 'quake', water: b.wn, kh: s.kh, skip: s.kh > 0 ? null : '未輸入水平地震係數 kh。' }
+      { key: 'quake', water: b.wn, kh: s.kh, kv: s.kv, skip: s.kh > 0 ? null : '未輸入水平地震係數 kh。' }
     ];
     var idx = 0;
     (function next() {
@@ -746,10 +843,16 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       setTimeout(function () {
         if (j.skip) results[j.key] = { skip: j.skip };
         else {
-          var opt = { kh: j.kh, water: j.water, nSlices: s.n, minDepth: s.minDepth, detail: true }, res;
-          try { res = man ? E.analyze(b.model, man.xc, man.yc, man.R, opt) : E.search(b.model, opt); } catch (e) { res = null; }
-          results[j.key] = res ? { res: res, req: s.req[j.key], kh: j.kh }
-            : { fail: man ? '這個圓弧無法計算：沒有切過邊坡、超出地表線範圍、低於分析底界，或滑動深度不足。' : '找不到有效的滑動圓弧，請檢查幾何與分析底界。' };
+          var opt = { kh: j.kh, water: j.water, nSlices: s.n, minDepth: s.minDepth, detail: true,
+            xMin: man || s.xmin === '' ? null : Number(s.xmin), xMax: man || s.xmax === '' ? null : Number(s.xmax) }, res;
+          var calc = function (kv) { opt.kv = kv; try { return man ? E.analyze(b.model, man.xc, man.yc, man.R, opt) : E.search(b.model, opt); } catch (e) { return null; } };
+          var kvUsed = 0;
+          if (j.kv > 0) { // 垂直地震力向上、向下各算一次，取安全係數較小者
+            var up = calc(j.kv), dn = calc(-j.kv);
+            if (up && (!dn || up.bishop <= dn.bishop)) { res = up; kvUsed = j.kv; } else { res = dn; kvUsed = -j.kv; }
+          } else res = calc(0);
+          results[j.key] = res ? { res: res, req: s.req[j.key], kh: j.kh, kv: kvUsed }
+            : { fail: man ? '這個圓弧無法計算：沒有切過邊坡、超出地表線範圍、低於分析底界，或滑動深度不足。' : '找不到有效的滑動圓弧，請檢查幾何、分析底界與滑動面範圍。' };
         }
         renderOutput(); next();
       }, 30);
@@ -759,7 +862,8 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     if (!lastModel || !results) return;
     var B = E.bounds(lastModel.model), L = B.x1 - B.x0, hit = false;
     CASES.forEach(function (c) { var r = results[c.key]; if (r && r.res && (r.res.xl - B.x0 < 0.03 * L || B.x1 - r.res.xr < 0.03 * L)) hit = true; });
-    if (hit) $('msg').textContent = '臨界圓已接近地表線的左右端，結果可能受模型範圍限制。請把地表線向外多延伸一段再分析。';
+    if (hit && lastModel) hit = true;
+    if (hit) $('msg').textContent = '臨界圓已接近地表線的左右端，結果受模型範圍限制。請把地表線向外多延伸一段，或用「滑動面範圍」限定要檢核的坡段。';
   }
 
   /* ---------- 報表與檔案 ---------- */
@@ -781,7 +885,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     h += '<h2>一、檢核結果</h2><table><tr><th class="txt">情況</th><th>簡化 Bishop FS</th><th>Fellenius FS</th><th>最小安全係數</th><th class="txt">判定</th><th>圓心 x (m)</th><th>圓心 y (m)</th><th>半徑 R (m)</th></tr>';
     CASES.forEach(function (c) {
       var r = results[c.key];
-      if (r && r.res) { var p = r.res.bishop >= r.req - 1e-9; h += '<tr><td class="txt">' + c.label + (c.key === 'quake' ? '（kh = ' + r.kh + '）' : '') + '</td><td>' + f(r.res.bishop, 3) + '</td><td>' + f(r.res.fellenius, 3) + '</td><td>' + f(r.req, 2) + '</td><td class="txt ' + (p ? 'ok' : 'bad') + '">' + (p ? '符合' : '不符合') + '</td><td>' + f(r.res.xc) + '</td><td>' + f(r.res.yc) + '</td><td>' + f(r.res.R) + '</td></tr>'; }
+      if (r && r.res) { var p = r.res.bishop >= r.req - 1e-9; h += '<tr><td class="txt">' + c.label + (c.key === 'quake' ? '（' + eqText(r) + '）' : '') + '</td><td>' + f(r.res.bishop, 3) + '</td><td>' + f(r.res.fellenius, 3) + '</td><td>' + f(r.req, 2) + '</td><td class="txt ' + (p ? 'ok' : 'bad') + '">' + (p ? '符合' : '不符合') + '</td><td>' + f(r.res.xc) + '</td><td>' + f(r.res.yc) + '</td><td>' + f(r.res.R) + '</td></tr>'; }
       else h += '<tr><td class="txt">' + c.label + '</td><td colspan="7" class="txt">' + esc(r ? (r.skip || r.fail) : '未計算') + '</td></tr>';
     });
     h += '</table><p class="note">判定以簡化 Bishop 法為準。滑動面：' + (s.mode === 'manual' ? '指定圓弧' : '自動搜尋最小安全係數的圓弧') + '。</p>';
@@ -790,6 +894,8 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       m.layers.map(function (l) { return '<tr><td class="txt">' + esc(l.name) + '</td><td>' + l.gamma + '</td><td>' + l.gsat + '</td><td>' + l.c + '</td><td>' + l.phi + '</td></tr>'; }).join('') + '</table>';
     m.layers.slice(1).forEach(function (l) { h += ptsTable(l.name + '頂面線', l.top); });
     h += ptsTable('常時水位線', lastModel.wn) + ptsTable('暴雨水位線', lastModel.ws);
+    if (m.anchors.length) h += '<table><caption>地錨</caption><tr><th>編號</th><th>錨頭 x (m)</th><th>傾角 (度)</th><th>自由段 (m)</th><th>固定段 (m)</th><th>設計拉力 (kN/支)</th><th>水平間距 (m)</th></tr>' +
+      m.anchors.map(function (a, i) { return '<tr><td>' + (i + 1) + '</td><td>' + a.x + '</td><td>' + a.angle + '</td><td>' + a.lf + '</td><td>' + a.lb + '</td><td>' + a.T + '</td><td>' + a.s + '</td></tr>'; }).join('') + '</table>';
     h += '<p>切片數 ' + s.n + '　最小滑動深度 ' + s.minDepth + ' m　分析底界高程 ' + f(m.bottom) + ' m　水單位重 9.81 kN/m³</p>';
     var no = 0, cn = ['三', '四', '五'];
     CASES.forEach(function (c) {
@@ -798,7 +904,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       h += '<section class="case"><h2>' + cn[no++] + '、' + c.label + '情況</h2><p>FS（簡化 Bishop）= ' + f(r.res.bishop, 3) + '，FS（Fellenius）= ' + f(r.res.fellenius, 3) + '，最小安全係數 ' + f(r.req, 2) + '。' + caption(r) + '</p>' +
         figure(m, water, r.res) + '<h3>切片計算表</h3>' + sliceTable(r) + '</section>';
     });
-    h += '<h2>計算方法與限制</h2><ul class="note"><li>簡化 Bishop 法：FS = Σ{[c·b + (W − u·b)·tanφ] / mα} ÷ Σ(W·sinα + kh·W·e/R)，mα = cosα + sinα·tanφ / FS，e 為切片中心到圓心的垂直距離。</li><li>Fellenius 法：FS = Σ[c·l + (W·cosα − kh·W·sinα − u·l)·tanφ] ÷ Σ(W·sinα + kh·W·e/R)。</li><li>孔隙水壓 u 以切片底部到水位線的垂直距離乘 9.81 kN/m³ 計算。地震力採擬靜態法，只計水平力。</li><li>只分析圓弧滑動面，不含平面滑動、複合滑動面、張力裂縫、外加載重與擋土或錨定構造。</li><li>最小安全係數預設值取自水土保持技術規範第 73 條。本報表由自製工具產生，送審文件請由執業技師以認可的軟體複核。</li></ul></body></html>';
+    h += '<h2>計算方法與限制</h2><ul class="note"><li>簡化 Bishop 法：FS = Σ{[c·b + (W − u·b)·tanφ] / mα} ÷ Σ(W·sinα + kh·W·e/R)，mα = cosα + sinα·tanφ / FS，e 為切片中心到圓心的垂直距離。</li><li>Fellenius 法（有效應力修正式）：FS = Σ{c·l + [(W − u·b)·cosα − kh·W·sinα]·tanφ} ÷ Σ(W·sinα + kh·W·e/R)。</li><li>孔隙水壓 u 以切片底部到水位線的垂直距離乘 9.81 kN/m³ 計算。水位高於地表時，坡外水壓的垂直分量併入 W，水平分量計入下滑力矩。地震力採擬靜態法；有垂直地震係數 kv 時，上式的 W 以 W·(1 ∓ kv) 代入（向上取負、向下取正），取安全係數較小者。</li><li>地錨以設計拉力除以水平間距作為外力：對圓心的力矩計入下滑力矩，垂直分量計入所在切片的垂直力。滑動面切過自由段時拉力全部有效，切過固定段時按滑動面外的固定段長度比例折減，錨體全在滑動土體內則不計。</li><li>只分析圓弧滑動面，不含平面滑動、複合滑動面、張力裂縫、外加載重與擋土牆、排樁；地錨本身的拉拔與鋼腱強度未檢核。</li><li>最小安全係數預設值取自水土保持技術規範第 73 條。本報表由自製工具產生，送審文件請由執業技師以認可的軟體複核。</li></ul></body></html>';
     return h;
   }
   var dl = null;
@@ -989,7 +1095,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
 
   /* ---------- 啟動 ---------- */
   var st = document.createElement('style'); st.id = 'figcss';
-  st.textContent = '.g-grid{stroke:var(--line);stroke-width:1}.g-txt{fill:var(--muted);font-family:var(--f-num);font-size:12px}.g-lab{fill:var(--ink);font-family:var(--f-body);font-size:13px}.soil0{fill:var(--soil0)}.soil1{fill:var(--soil1)}.soil2{fill:var(--soil2)}.soil3{fill:var(--soil3)}.soil4{fill:var(--soil4)}.g-bound{fill:none;stroke:var(--ink);stroke-width:1;opacity:.45}.g-surf{fill:none;stroke:var(--ink);stroke-width:2.2}.g-water{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:9 5}.g-wmark{fill:var(--water)}.g-mass{fill:var(--accent);opacity:.18}.g-arc{fill:none;stroke:var(--accent);stroke-width:2.6}.g-slice{stroke:var(--accent);stroke-width:.8;opacity:.6}.g-rad{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 4}.g-ctr{fill:var(--accent)}';
+  st.textContent = '.g-grid{stroke:var(--line);stroke-width:1}.g-txt{fill:var(--muted);font-family:var(--f-num);font-size:12px}.g-lab{fill:var(--ink);font-family:var(--f-body);font-size:13px}.soil0{fill:var(--soil0)}.soil1{fill:var(--soil1)}.soil2{fill:var(--soil2)}.soil3{fill:var(--soil3)}.soil4{fill:var(--soil4)}.g-bound{fill:none;stroke:var(--ink);stroke-width:1;opacity:.45}.g-surf{fill:none;stroke:var(--ink);stroke-width:2.2}.g-water{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:9 5}.g-wmark{fill:var(--water)}.g-pond{fill:var(--water);opacity:.22}.g-anc{stroke:var(--ink);stroke-width:1.4}.g-ancb{stroke:var(--ink);stroke-width:4.5;stroke-linecap:round}.g-anch{fill:var(--ink)}.g-mass{fill:var(--accent);opacity:.18}.g-arc{fill:none;stroke:var(--accent);stroke-width:2.6}.g-slice{stroke:var(--accent);stroke-width:.8;opacity:.6}.g-rad{stroke:var(--accent);stroke-width:1;stroke-dasharray:3 4}.g-ctr{fill:var(--accent)}';
   document.head.appendChild(st);
   var saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { saved = null; }
