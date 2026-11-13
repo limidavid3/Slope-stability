@@ -131,6 +131,8 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
   <div id="msg" role="status"></div>
   <div id="err" role="alert"></div>
 
+  <section class="panel" id="dxfBox" hidden></section>
+
   <section class="tiles" id="tiles" aria-label="檢核結果"></section>
 
   <div class="cols">
@@ -139,6 +141,8 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
         <h2>地表線</h2>
         <p class="hint">每行一個點「x, y」，由左至右。可直接從 Excel 貼上兩欄座標。</p>
         <textarea id="surf" rows="5" spellcheck="false" aria-label="地表線座標"></textarea>
+        <div style="margin-top:8px"><button id="btnDxf" type="button" class="small">匯入 CAD 圖檔（DXF）</button>
+        <input id="dxfFile" type="file" accept=".dxf" hidden></div>
       </section>
 
       <section class="panel">
@@ -815,6 +819,126 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     } catch (e) { say('這個檢視環境無法存檔。'); }
   }
   function safeName() { return ($('pname').value.trim() || '邊坡穩定分析').replace(/[\\/:*?"<>|（）()\s]+/g, '_').slice(0, 60); }
+
+  /* ---------- DXF 匯入 ---------- */
+  var dxf = null; // {name, layers:[{name, runs:[[[x,y]..]..], n}]}
+  function parseDxf(text) {
+    var ln = text.split(/\r?\n/), ents = [], cur = null, poly = null, inEnt = false, i;
+    function close() {
+      if (!cur) return;
+      var pts = [], k;
+      if (cur.type === 'LINE') { if (cur.x.length && cur.x2.length) pts = [[cur.x[0], cur.y[0]], [cur.x2[0], cur.y2[0]]]; }
+      else if (cur.type === 'SPLINE' && cur.x2.length > 1) for (k = 0; k < cur.x2.length; k++) pts.push([cur.x2[k], cur.y2[k]]);
+      else for (k = 0; k < cur.x.length; k++) pts.push([cur.x[k], cur.y[k]]);
+      if (cur.type === 'VERTEX') { if (poly && pts.length) poly.pts.push(pts[0]); }
+      else if (cur.type === 'POLYLINE') { poly = { layer: cur.layer, pts: [] }; ents.push(poly); }
+      else if (cur.type === 'SEQEND') poly = null;
+      else if (pts.length > 1) ents.push({ layer: cur.layer, pts: pts });
+      cur = null;
+    }
+    for (i = 0; i + 1 < ln.length; i += 2) {
+      var c = parseInt(ln[i], 10), v = ln[i + 1].trim();
+      if (c === 0) {
+        close();
+        if (v === 'SECTION') { inEnt = false; continue; }
+        if (v === 'ENDSEC') { inEnt = false; continue; }
+        if (inEnt && /^(LINE|LWPOLYLINE|POLYLINE|VERTEX|SEQEND|SPLINE)$/.test(v)) cur = { type: v, layer: '0', x: [], y: [], x2: [], y2: [] };
+      } else if (c === 2 && !cur && !inEnt && v === 'ENTITIES') inEnt = true;
+      else if (cur) {
+        if (c === 8) cur.layer = v;
+        else if (c === 10) cur.x.push(parseFloat(v)); else if (c === 20) cur.y.push(parseFloat(v));
+        else if (c === 11) cur.x2.push(parseFloat(v)); else if (c === 21) cur.y2.push(parseFloat(v));
+      }
+    }
+    close();
+    var map = {}, out = [];
+    ents.forEach(function (e) {
+      var pts = e.pts.filter(function (q) { return isFinite(q[0]) && isFinite(q[1]); });
+      if (pts.length < 2) return;
+      if (pts[0][0] > pts[pts.length - 1][0]) pts.reverse();
+      if (!map[e.layer]) { map[e.layer] = { name: e.layer, runs: [], n: 0 }; out.push(map[e.layer]); }
+      map[e.layer].runs.push(pts); map[e.layer].n += pts.length;
+    });
+    return out;
+  }
+  // 同一圖層的線段由左至右接成一條線，x 必須遞增
+  function dxfLine(L, scale, shift) {
+    var runs = L.runs.slice().sort(function (a, b) { return a[0][0] - b[0][0]; }), pts = [], px = -Infinity;
+    runs.forEach(function (r) {
+      r.forEach(function (q) {
+        var x = +(q[0] * scale - shift).toFixed(3), y = +(q[1] * scale).toFixed(3);
+        if (pts.length && Math.abs(x - px) < 1e-9) { if (pts[pts.length - 1][1] === y) return; x = +(px + 0.01).toFixed(3); }
+        if (x < px) return; // 懸空或折返的部分略過
+        pts.push([x, y]); px = x;
+      });
+    });
+    return pts;
+  }
+  function dxfGuess(name) {
+    var n = name.toLowerCase();
+    if (/暴雨|高水|storm|hwl/.test(n)) return 'ws';
+    if (/水位|地下水|water|gwl|^wl/.test(n)) return 'wn';
+    if (/地表|地面|地形|ground|surface|^gl|terrain/.test(n)) return 'surf';
+    return '';
+  }
+  function dxfDialog() {
+    var opts = '<option value="">不匯入</option><option value="surf">地表線</option>' +
+      layers.slice(1).map(function (l, i) { return '<option value="top' + (i + 1) + '">' + esc(l.name || ('第 ' + (i + 2) + ' 層')) + '頂面線</option>'; }).join('') +
+      '<option value="new">新增土層的頂面線</option><option value="wn">常時水位</option><option value="ws">暴雨水位</option>';
+    var h = '<h2>匯入 DXF：' + esc(dxf.name) + '</h2><p class="hint">每個 CAD 圖層的線會由左至右接成一條線。請指定各圖層的用途。弧線以直線連接頂點，懸空或折返的線段會略過。</p>' +
+      '<div class="grid2" style="max-width:520px;margin-bottom:8px"><label>圖面單位<select id="dxfUnit"><option value="1">公尺</option><option value="0.01">公分</option><option value="0.001">公釐</option></select></label>' +
+      '<label>x 座標<select id="dxfShift"><option value="0">保留圖面座標</option><option value="1">最左點設為 0</option></select></label></div>' +
+      '<div class="tbl"><table><thead><tr><th class="txt">CAD 圖層</th><th>點數</th><th>x 範圍</th><th>y 範圍</th><th class="txt">用途</th></tr></thead><tbody>';
+    dxf.layers.forEach(function (L, i) {
+      var xs = [], ys = [];
+      L.runs.forEach(function (r) { r.forEach(function (q) { xs.push(q[0]); ys.push(q[1]); }); });
+      var g = dxfGuess(L.name);
+      h += '<tr><td class="txt">' + esc(L.name) + '</td><td>' + L.n + '</td><td>' + f(Math.min.apply(0, xs)) + ' ~ ' + f(Math.max.apply(0, xs)) + '</td><td>' + f(Math.min.apply(0, ys)) + ' ~ ' + f(Math.max.apply(0, ys)) + '</td>' +
+        '<td class="txt"><select id="dxfUse' + i + '" aria-label="' + esc(L.name) + ' 的用途" style="min-width:150px">' + opts.replace('value="' + g + '"', 'value="' + g + '" selected') + '</select></td></tr>';
+    });
+    h += '</tbody></table></div><div class="actions" style="margin-top:10px"><button type="button" class="primary" id="dxfOk" style="padding:6px 16px">套用</button><button type="button" id="dxfCancel">取消</button></div>';
+    $('dxfBox').innerHTML = h; $('dxfBox').hidden = false;
+    $('dxfBox').scrollIntoView({ block: 'nearest' });
+  }
+  function dxfApply() {
+    var scale = Number($('dxfUnit').value), shift = 0, used = 0, minX = Infinity;
+    var picks = dxf.layers.map(function (L, i) { return $('dxfUse' + i).value; });
+    if ($('dxfShift').value === '1') {
+      dxf.layers.forEach(function (L, i) { if (picks[i]) L.runs.forEach(function (r) { minX = Math.min(minX, r[0][0] * scale); }); });
+      if (isFinite(minX)) shift = minX;
+    }
+    dxf.layers.forEach(function (L, i) {
+      var use = picks[i]; if (!use) return;
+      var txt = dxfLine(L, scale, shift).map(function (q) { return q[0] + ', ' + q[1]; }).join('\n');
+      if (use === 'surf') $('surf').value = txt;
+      else if (use === 'wn' || use === 'ws') $(use).value = txt;
+      else if (use === 'new') layers.push({ name: L.name, gamma: 19, gsat: 20, c: 10, phi: 28, top: txt });
+      else layers[+use.slice(3)].top = txt;
+      used++;
+    });
+    $('dxfBox').hidden = true; $('dxfBox').innerHTML = '';
+    if (!used) { $('msg').textContent = '沒有指定任何圖層的用途，未匯入。'; return; }
+    renderLayers(); preview(); persist();
+    $('msg').textContent = '已從 ' + dxf.name + ' 匯入 ' + used + ' 條線。請核對座標與土層參數後再按「開始分析」。';
+  }
+  $('btnDxf').addEventListener('click', function () { $('dxfFile').click(); });
+  $('dxfFile').addEventListener('change', function () {
+    var fl = this.files && this.files[0]; if (!fl) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(rd.result); }
+      catch (e) { try { text = new TextDecoder('big5').decode(rd.result); } catch (e2) { text = ''; } }
+      var ls = text ? parseDxf(text) : [];
+      if (!ls.length) { $('msg').textContent = /\.dwg$/i.test(fl.name) ? 'DWG 檔無法直接讀取，請在 CAD 軟體中另存成 DXF。' : '這個檔案裡找不到線或聚合線。請確認是文字格式的 DXF，且地形是用 LINE 或 PLINE 畫的。'; return; }
+      dxf = { name: fl.name, layers: ls }; $('msg').textContent = ''; dxfDialog();
+    };
+    rd.readAsArrayBuffer(fl); this.value = '';
+  });
+  $('dxfBox').addEventListener('click', function (e) {
+    if (e.target.id === 'dxfOk') dxfApply();
+    else if (e.target.id === 'dxfCancel') { $('dxfBox').hidden = true; $('dxfBox').innerHTML = ''; }
+  });
 
   /* ---------- 事件 ---------- */
   $('form').addEventListener('submit', function (e) { e.preventDefault(); run(); });
