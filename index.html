@@ -55,6 +55,7 @@ button[disabled]{opacity:.5;cursor:default}
 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .tile{display:grid;grid-template-columns:1fr auto;grid-template-areas:"lab pill" "fs fs" "sub sub";gap:2px 8px;text-align:left;padding:12px 14px;border:1px solid var(--line);border-left:6px solid var(--line);background:var(--panel);color:var(--ink)}
 .tile:hover{color:var(--ink)}
+#btnPick[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .tile[aria-pressed=true]{border-color:var(--ink);border-left-color:var(--line);box-shadow:inset 0 -3px 0 var(--accent)}
 .tile.ok{border-left-color:var(--ok)} .tile.bad{border-left-color:var(--bad)}
 .tile .lab{grid-area:lab;font-weight:700;font-size:15px}
@@ -162,8 +163,14 @@ tfoot td{border-top:2px solid var(--ink);border-bottom:0;font-weight:600}
 
       <section class="panel">
         <h2>地錨</h2>
-        <p class="hint">每行一支（一排）地錨：錨頭 x, 傾角(度，水平向下), 自由段長 m, 固定段長 m, 設計拉力 kN/支, 水平間距 m。錨頭自動落在地表，朝坡內打設。留白表示沒有地錨。</p>
-        <textarea id="anc" rows="3" spellcheck="false" aria-label="地錨資料" placeholder="例：182, 20, 12, 8, 400, 2.5"></textarea>
+        <p class="hint">一排地錨填一列。錨頭自動落在地表，朝坡內打設。也可以直接在剖面圖上點選錨頭位置。</p>
+        <div id="ancRows"></div>
+        <div class="actions" style="align-items:center">
+          <button id="btnAddAnc" type="button" class="small">＋ 新增一排</button>
+          <button id="btnPick" type="button" class="small" aria-pressed="false">在剖面圖上點選錨頭</button>
+          <label style="flex-direction:row;align-items:center;gap:6px">拉力單位
+            <select id="ancUnit" style="width:auto"><option value="tf">tf（公噸）</option><option value="kN">kN</option></select></label>
+        </div>
       </section>
 
       <section class="panel">
@@ -574,6 +581,8 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   };
   var KEY = 'slope-stability-project';
   var layers = [];       // 目前土層輸入
+  var anchors = [];      // 目前地錨輸入（字串）
+  var figMap = null, picking = false;
   var results = null;    // {normal:{...}, storm:{...}, quake:{...}}
   var shown = 'normal';
   var lastModel = null;
@@ -586,7 +595,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   function collect() {
     return {
       name: $('pname').value, surf: $('surf').value, layers: layers.map(function (l) { return Object.assign({}, l); }),
-      wn: $('wn').value, ws: $('ws').value, anc: $('anc').value, stage: $('stage').value,
+      wn: $('wn').value, ws: $('ws').value, anchors: anchors.map(function (a) { return Object.assign({}, a); }), ancUnit: $('ancUnit').value, stage: $('stage').value,
       req: { normal: num('reqN'), storm: num('reqS'), quake: num('reqQ') },
       kh: num('kh') || 0, kv: num('kv') || 0, n: num('nsl') || 30, minDepth: num('mind') || 0,
       bottom: $('bot').value.trim(), mode: $('modeMan').checked ? 'manual' : 'auto',
@@ -598,7 +607,17 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     $('pname').value = s.name || '';
     $('surf').value = s.surf || '';
     layers = (s.layers && s.layers.length ? s.layers : EXAMPLE.layers).map(function (l) { return Object.assign({}, l); });
-    $('wn').value = s.wn || ''; $('ws').value = s.ws || ''; $('anc').value = s.anc || '';
+    $('wn').value = s.wn || ''; $('ws').value = s.ws || '';
+    if (s.anchors) { anchors = s.anchors.map(function (a) { return Object.assign({}, a); }); $('ancUnit').value = s.ancUnit || 'tf'; }
+    else { // 舊版專案檔：每行六個數字、拉力單位 kN
+      anchors = [];
+      String(s.anc || '').split(/\r?\n/).forEach(function (line) {
+        var v = line.trim().split(/[\s,;，、\t]+/).filter(Boolean);
+        if (v.length >= 6) anchors.push({ x: v[0], angle: v[1], lf: v[2], lb: v[3], T: v[4], s: v[5] });
+      });
+      $('ancUnit').value = anchors.length ? 'kN' : 'tf';
+    }
+    renderAnchors();
     $('stage').value = s.stage || 'perm';
     var r = s.req || REQ.perm;
     $('reqN').value = r.normal; $('reqS').value = r.storm; $('reqQ').value = r.quake;
@@ -625,6 +644,30 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   }
   function inp(i, k, lab, v, step) {
     return '<label>' + lab + '<input type="number" min="0" step="' + step + '" id="l' + k + i + '" data-i="' + i + '" data-k="' + k + '" value="' + (v == null ? '' : v) + '"></label>';
+  }
+  function renderAnchors() {
+    var u = $('ancUnit').value;
+    $('ancRows').innerHTML = anchors.map(function (a, i) {
+      var cell = function (k, lab, step) { return '<label>' + lab + '<input type="number" step="' + step + '" id="a' + k + i + '" data-a="' + i + '" data-k="' + k + '" value="' + esc(a[k] == null ? '' : a[k]) + '"></label>'; };
+      return '<div class="layer"><div class="head"><strong style="flex:1;font-size:13px">第 ' + (i + 1) + ' 排　<span class="hint" id="ay' + i + '"></span></strong>' +
+        '<button type="button" class="small" data-acopy="' + i + '">複製</button><button type="button" class="small" data-adel="' + i + '" aria-label="刪除第 ' + (i + 1) + ' 排地錨">刪除</button></div>' +
+        '<div class="grid3">' + cell('x', '錨頭 x m', 0.1) + cell('angle', '傾角 度', 1) + cell('s', '水平間距 m', 0.1) +
+        cell('lf', '自由段 m', 0.5) + cell('lb', '固定段 m', 0.5) + cell('T', '拉力 ' + u + '/支', 1) + '</div></div>';
+    }).join('');
+    $('ancRows').style.cssText = anchors.length ? 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px' : '';
+  }
+  function anchorHeights() { // 顯示各排錨頭高程與總長
+    anchors.forEach(function (a, i) {
+      var el = $('ay' + i); if (!el) return;
+      var t = [];
+      if (lastModel && a.x !== '' && a.x != null && isFinite(Number(a.x))) t.push('錨頭高程 ' + f(E.interp(lastModel.model.surface, Number(a.x))) + ' m');
+      if (Number(a.lf) >= 0 && Number(a.lb) > 0) t.push('總長 ' + f(Number(a.lf) + Number(a.lb), 1) + ' m');
+      el.textContent = t.join('　');
+    });
+  }
+  function newAnchor(x) {
+    var p = anchors[anchors.length - 1];
+    return p ? Object.assign({}, p, { x: x }) : { x: x, angle: 20, lf: '', lb: '', T: '', s: '' };
   }
   function syncMode() { $('manBox').style.display = $('modeMan').checked ? '' : 'none'; }
 
@@ -654,16 +697,17 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       return o;
     });
     var wn = parsePoly(s.wn, '常時水位', errs, true), ws = parsePoly(s.ws, '暴雨水位', errs, true);
-    var anchors = [];
-    String(s.anc || '').split(/\r?\n/).forEach(function (line, k) {
-      line = line.trim(); if (!line) return;
-      var v = line.split(/[\s,;，、\t]+/).filter(Boolean).map(Number), lab = '地錨第 ' + (k + 1) + ' 行';
-      if (v.length < 6 || v.slice(0, 6).some(function (q) { return !isFinite(q); })) { errs.push(lab + '需要 6 個數字：錨頭 x, 傾角, 自由段長, 固定段長, 設計拉力, 水平間距。'); return; }
+    var anchors = [], uf = s.ancUnit === 'kN' ? 1 : 9.81;
+    (s.anchors || []).forEach(function (a, k) {
+      var keys = ['x', 'angle', 'lf', 'lb', 'T', 's'], lab = '地錨第 ' + (k + 1) + ' 排';
+      if (keys.every(function (q) { return a[q] === '' || a[q] == null; })) return; // 空白列略過
+      var v = keys.map(function (q) { return a[q] === '' || a[q] == null ? NaN : Number(a[q]); });
+      if (v.some(function (q) { return !isFinite(q); })) { errs.push(lab + '有欄位還沒填。'); return; }
       if (v[1] < 0 || v[1] >= 90) errs.push(lab + '的傾角要在 0 到 90 度之間。');
       if (v[2] < 0 || !(v[3] > 0)) errs.push(lab + '的自由段長不可為負，固定段長要大於 0。');
       if (v[4] < 0 || !(v[5] > 0)) errs.push(lab + '的拉力不可為負，水平間距要大於 0。');
       if (surface && (v[0] <= surface[0][0] || v[0] >= surface[surface.length - 1][0])) errs.push(lab + '的錨頭 x 超出地表線範圍。');
-      anchors.push({ x: v[0], angle: v[1], lf: v[2], lb: v[3], T: v[4], s: v[5] });
+      anchors.push({ x: v[0], angle: v[1], lf: v[2], lb: v[3], T: v[4] * uf, Tin: v[4], s: v[5] });
     });
     var model = { surface: surface, layers: ls, anchors: anchors, bottom: s.bottom === '' ? null : Number(s.bottom) };
     if (surface) {
@@ -688,6 +732,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     var W = 1000, ml = 50, mr = 14, mt = 12, mb = 30, k = (W - ml - mr) / L, H = mt + (yt - yb) * k + mb;
     var sx = function (x) { return (ml + (x - x0) * k).toFixed(1); };
     var sy = function (y) { return (mt + (yt - y) * k).toFixed(1); };
+    figMap = { x0: x0, x1: x1, ml: ml, k: k, W: W };
     var o = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H.toFixed(0) + '" role="img" aria-label="邊坡剖面圖">'];
     var i, j, xs = [];
     for (i = 0; i <= 120; i++) xs.push(x0 + L * i / 120);
@@ -815,7 +860,7 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
     results = null;
     if (errs.length) { lastModel = null; $('err').innerHTML = errs.map(esc).join('<br>'); }
     else { lastModel = b; $('err').innerHTML = ''; }
-    renderOutput();
+    renderOutput(); anchorHeights();
   }
 
   /* ---------- 執行分析 ---------- */
@@ -894,8 +939,8 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
       m.layers.map(function (l) { return '<tr><td class="txt">' + esc(l.name) + '</td><td>' + l.gamma + '</td><td>' + l.gsat + '</td><td>' + l.c + '</td><td>' + l.phi + '</td></tr>'; }).join('') + '</table>';
     m.layers.slice(1).forEach(function (l) { h += ptsTable(l.name + '頂面線', l.top); });
     h += ptsTable('常時水位線', lastModel.wn) + ptsTable('暴雨水位線', lastModel.ws);
-    if (m.anchors.length) h += '<table><caption>地錨</caption><tr><th>編號</th><th>錨頭 x (m)</th><th>傾角 (度)</th><th>自由段 (m)</th><th>固定段 (m)</th><th>設計拉力 (kN/支)</th><th>水平間距 (m)</th></tr>' +
-      m.anchors.map(function (a, i) { return '<tr><td>' + (i + 1) + '</td><td>' + a.x + '</td><td>' + a.angle + '</td><td>' + a.lf + '</td><td>' + a.lb + '</td><td>' + a.T + '</td><td>' + a.s + '</td></tr>'; }).join('') + '</table>';
+    if (m.anchors.length) h += '<table><caption>地錨</caption><tr><th>編號</th><th>錨頭 x (m)</th><th>傾角 (度)</th><th>自由段 (m)</th><th>固定段 (m)</th><th>設計拉力 (' + s.ancUnit + '/支)</th><th>水平間距 (m)</th></tr>' +
+      m.anchors.map(function (a, i) { return '<tr><td>' + (i + 1) + '</td><td>' + a.x + '</td><td>' + a.angle + '</td><td>' + a.lf + '</td><td>' + a.lb + '</td><td>' + a.Tin + '</td><td>' + a.s + '</td></tr>'; }).join('') + '</table>';
     h += '<p>切片數 ' + s.n + '　最小滑動深度 ' + s.minDepth + ' m　分析底界高程 ' + f(m.bottom) + ' m　水單位重 9.81 kN/m³</p>';
     var no = 0, cn = ['三', '四', '五'];
     CASES.forEach(function (c) {
@@ -1051,6 +1096,9 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   $('form').addEventListener('input', function (e) {
     var t = e.target, i = t.getAttribute('data-i');
     if (i != null) layers[+i][t.getAttribute('data-k')] = t.value;
+    var ai = t.getAttribute('data-a');
+    if (ai != null) anchors[+ai][t.getAttribute('data-k')] = t.value;
+    if (t.id === 'ancUnit') renderAnchors();
     if (t.id === 'stage') return;
     preview(); persist();
   });
@@ -1071,6 +1119,32 @@ if (typeof module !== 'undefined') module.exports = SlopeEngine;
   $('layers').addEventListener('click', function (e) {
     var d = e.target.getAttribute('data-del'); if (d == null) return;
     layers.splice(+d, 1); renderLayers(); preview(); persist();
+  });
+  $('btnAddAnc').addEventListener('click', function () {
+    anchors.push(newAnchor('')); renderAnchors(); preview(); persist();
+    var el = $('ax' + (anchors.length - 1)); if (el) el.focus();
+  });
+  $('ancRows').addEventListener('click', function (e) {
+    var d = e.target.getAttribute('data-adel'), c = e.target.getAttribute('data-acopy');
+    if (d != null) anchors.splice(+d, 1);
+    else if (c != null) anchors.splice(+c + 1, 0, Object.assign({}, anchors[+c]));
+    else return;
+    renderAnchors(); preview(); persist();
+  });
+  function setPick(on) {
+    picking = on; $('btnPick').setAttribute('aria-pressed', on); $('btnPick').textContent = on ? '結束點選' : '在剖面圖上點選錨頭';
+    $('fig').style.cursor = on ? 'crosshair' : '';
+    $('msg').textContent = on ? '請在剖面圖的坡面上點選錨頭位置，每點一下新增一排；其他數值沿用上一排。完成後按「結束點選」。' : '';
+  }
+  $('btnPick').addEventListener('click', function () { setPick(!picking); if (picking) $('fig').scrollIntoView({ block: 'nearest' }); });
+  $('fig').addEventListener('click', function (e) {
+    var svg = $('fig').querySelector('svg'); if (!picking || !svg || !figMap) return;
+    var r = svg.getBoundingClientRect(), vx = (e.clientX - r.left) / r.width * figMap.W;
+    var x = figMap.x0 + (vx - figMap.ml) / figMap.k;
+    if (x <= figMap.x0 || x >= figMap.x1) return;
+    var last = anchors[anchors.length - 1];
+    if (last && (last.x === '' || last.x == null)) last.x = +x.toFixed(1); else anchors.push(newAnchor(+x.toFixed(1)));
+    renderAnchors(); preview(); persist();
   });
   $('tiles').addEventListener('click', function (e) {
     var b = e.target.closest('[data-case]'); if (!b) return;
